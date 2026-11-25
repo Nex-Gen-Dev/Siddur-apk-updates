@@ -16,7 +16,10 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.security.MessageDigest;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -76,6 +79,67 @@ public class ApkUpdaterPlugin extends Plugin {
     @PluginMethod
     public void openOverlaySettings(PluginCall call) {
         openSettings(call, Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+    }
+
+
+    /** Downloads a new index.html into app storage so content updates need no reinstall. */
+    @PluginMethod
+    public void downloadWeb(final PluginCall call) {
+        final String url = call.getString("url");
+        final String sha = call.getString("sha256");
+        final int version = call.getInt("version", 0);
+        if (url == null || !url.startsWith("https://")) {
+            call.reject("bad_url");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                File root = new File(getContext().getFilesDir(), "web");
+                File dir = new File(root, "v" + version);
+                dir.mkdirs();
+                File tmp = new File(dir, "index.tmp");
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setInstanceFollowRedirects(true);
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(30000);
+                c.setRequestProperty("User-Agent", "SiddurApp-Updater");
+                if (c.getResponseCode() != 200) throw new Exception("http_" + c.getResponseCode());
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                try (InputStream in = c.getInputStream(); FileOutputStream fo = new FileOutputStream(tmp)) {
+                    byte[] buf = new byte[32768];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        fo.write(buf, 0, n);
+                        md.update(buf, 0, n);
+                    }
+                }
+                c.disconnect();
+                StringBuilder hex = new StringBuilder();
+                for (byte b : md.digest()) hex.append(String.format("%02x", b));
+                if (sha != null && !sha.isEmpty() && !hex.toString().equalsIgnoreCase(sha)) {
+                    tmp.delete();
+                    throw new Exception("checksum");
+                }
+                File out = new File(dir, "index.html");
+                if (out.exists()) out.delete();
+                if (!tmp.renameTo(out)) throw new Exception("write_failed");
+                File[] olds = root.listFiles();
+                if (olds != null) for (File o : olds) {
+                    if (!o.equals(dir)) {
+                        File[] fs = o.listFiles();
+                        if (fs != null) for (File f : fs) f.delete();
+                        o.delete();
+                    }
+                }
+                getContext().getSharedPreferences(com.getcapacitor.plugin.WebView.WEBVIEW_PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit().putString(com.getcapacitor.plugin.WebView.CAP_SERVER_PATH, dir.getAbsolutePath()).apply();
+                JSObject r = new JSObject();
+                r.put("path", dir.getAbsolutePath());
+                call.resolve(r);
+            } catch (Exception e) {
+                call.reject(String.valueOf(e.getMessage()));
+            }
+        }).start();
     }
 
     @PluginMethod

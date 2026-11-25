@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Turns the plain siddur HTML into the polished app page (www/index.html).
 
-usage: build_www.py <original.html> <out/index.html>
+usage: build_www.py <original.html> <out/index.html> [web_version]
 """
 import re, sys, pathlib
 
 here = pathlib.Path(__file__).resolve().parent
 src_path, out_path = sys.argv[1], sys.argv[2]
+web_version = int(sys.argv[3]) if len(sys.argv) > 3 else 1
 s = open(src_path, encoding='utf-8').read()
 
 css = (here / 'theme.css').read_text(encoding='utf-8')
@@ -28,7 +29,7 @@ def must_sub(pattern, repl, text, flags=re.S):
     return new
 
 # 1) head: title, theme colour, extra css
-s = s.replace('<title>סידור</title>', '<title>סידור</title><meta name="theme-color" content="#0c0f1f">', 1)
+s = s.replace('<title>סידור</title>', '<title>סידור</title><meta name="theme-color" content="#0c0f1f"><script>window.SIDDUR_WEB=%d</script>' % web_version, 1)
 s = must_sub(r'</style></head>', '</style><style id="app-polish">' + css + '</style></head>', s)
 
 # 2) splash / loading screen

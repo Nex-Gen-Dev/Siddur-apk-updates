@@ -67,40 +67,55 @@
   }catch(e){}
  }
 
- /* ---- updater ---- */
+ /* ---- updater: content updates (instant) + app updates (fallback) ---- */
  var FEED='https://raw.githubusercontent.com/Nex-Gen-Dev/Siddur-apk-updates/main/latest.json';
- var UP=null;
- try{if(native)UP=Capacitor.registerPlugin('ApkUpdater')}catch(e){}
+ var WEBV=window.SIDDUR_WEB||0;
+ var UP=null,WV=null;
+ try{if(native){UP=Capacitor.registerPlugin('ApkUpdater');WV=Capacitor.registerPlugin('WebView')}}catch(e){}
  var box=$('upd-box'),line=$('upd-line'),btn=$('upd-btn'),bar=$('upd-bar').firstElementChild,auto=$('upd-auto');
  var info=null,pending=null,working=false,listening=false;
  function say(h){line.innerHTML=h}
+ function ver(){return info?'Version <b>'+info.versionName+'</b> · content '+WEBV:''}
  function toast(msg,label,fn){
   var t=$('upd-toast');t.firstElementChild.textContent=msg;
   var b=t.lastElementChild;b.textContent=label;b.onclick=function(){t.classList.remove('show');if(fn)fn()};
   t.classList.add('show');setTimeout(function(){t.classList.remove('show')},9000);
  }
+ function busy(on){working=on;btn.disabled=on;box.classList[on?'add':'remove']('busy')}
  function check(silent){
   if(!UP){say('Updates work in the Android app.');return Promise.resolve(null)}
   if(working)return Promise.resolve(null);
-  working=true;btn.disabled=true;if(!silent)say('Checking…');
+  busy(true);btn.disabled=true;if(!silent)say('Checking…');
   return UP.getInfo().then(function(i){
    info=i;
    return fetch(FEED+'?t='+Date.now(),{cache:'no-store'});
   }).then(function(r){if(!r.ok)throw new Error('feed');return r.json()}).then(function(j){
-   working=false;btn.disabled=false;
-   if(j&&j.versionCode>info.versionCode){
-    pending=j;
-    say('Update available: <b>'+(j.versionName||j.versionCode)+'</b>'+(j.notes?'<br>'+String(j.notes).replace(/[<>&]/g,''):''));
+   busy(false);
+   if(j&&j.webUrl&&j.webVersion>WEBV){pending={type:'web',j:j};return pending}
+   if(j&&j.apk&&j.versionCode>info.versionCode){
+    pending={type:'apk',j:j};
+    say('App update available: <b>'+(j.versionName||j.versionCode)+'</b>');
     btn.textContent='Update now';
-    return j;
+    return pending;
    }
    pending=null;btn.textContent='Check for updates';
-   say('You’re up to date · <b>'+info.versionName+'</b>');
+   say('You’re up to date · '+ver());
    return null;
   }).catch(function(){
-   working=false;btn.disabled=false;
+   busy(false);
    if(!silent)say('Couldn’t check. Make sure you’re online.');
    return null;
+  });
+ }
+ /* content update: download new page, switch to it (page reloads itself) */
+ function applyWeb(j){
+  busy(true);box.classList.remove('busy');say('Updating…');
+  return UP.downloadWeb({url:j.webUrl,sha256:j.webSha256||'',version:j.webVersion}).then(function(r){
+   say('Restarting…');
+   return WV.setServerBasePath({path:r.path});
+  }).catch(function(e){
+   busy(false);
+   say('Update failed ('+((e&&e.message)||'error')+'). Try again.');
   });
  }
  function ensurePermissions(){
@@ -118,40 +133,41 @@
    return true;
   });
  }
- function install(){
-  if(!pending||working)return;
+ function applyApk(j){
   ensurePermissions().then(function(ok){
    if(!ok)return;
-   working=true;btn.disabled=true;box.classList.add('busy');bar.style.width='0';say('Downloading update…');
+   busy(true);bar.style.width='0';say('Downloading update…');
    if(!listening){
     listening=true;
     UP.addListener('progress',function(p){if(p.percent>=0){bar.style.width=p.percent+'%';say('Downloading update… <b>'+p.percent+'%</b>')}});
    }
-   return UP.downloadAndInstall({url:pending.apk}).then(function(){
+   return UP.downloadAndInstall({url:j.apk}).then(function(){
     say('Installing… the app will restart.');
    }).catch(function(e){
-    working=false;btn.disabled=false;box.classList.remove('busy');
+    busy(false);
     say('Update failed ('+((e&&e.message)||'error')+'). Try again.');
    });
   });
  }
+ function go(p){if(!p)return;if(p.type==='web')applyWeb(p.j);else applyApk(p.j)}
  btn.addEventListener('click',function(){
-  if(pending)install();else check(false).then(function(j){if(j)install()});
+  if(pending&&!working)go(pending);else check(false).then(go);
  });
  try{auto.checked=localStorage.getItem('siddur.autoUpdate')!=='0'}catch(e){}
  auto.addEventListener('change',function(){try{localStorage.setItem('siddur.autoUpdate',auto.checked?'1':'0')}catch(e){}});
  if(UP){
-  UP.getInfo().then(function(i){info=i;say('Version <b>'+i.versionName+'</b>')}).catch(function(){});
+  UP.getInfo().then(function(i){info=i;say(ver())}).catch(function(){});
   setTimeout(function(){
    if(!auto.checked)return;
-   check(true).then(function(j){
-    if(!j)return;
+   check(true).then(function(p){
+    if(!p)return;
+    if(p.type==='web'){applyWeb(p.j);return}
     UP.getInfo().then(function(i){
-     if(i.canInstall){install()}
-     else toast('Update '+(j.versionName||'')+' is ready','Update',function(){$('settings-open').checked=true});
+     if(i.canInstall){applyApk(p.j)}
+     else toast('App update '+(p.j.versionName||'')+' is ready','Update',function(){$('settings-open').checked=true});
     });
    });
-  },3600);
+  },400);
  }else{say('Updates work in the Android app.');btn.disabled=true}
  statusBar();
 })();

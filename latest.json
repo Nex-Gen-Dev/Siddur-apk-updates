@@ -1,6 +1,9 @@
 {
-  "versionCode": 1,
-  "versionName": "1.0.1",
-  "apk": "https://raw.githubusercontent.com/Nex-Gen-Dev/Siddur-apk-updates/main/releases/Siddur-1.apk",
-  "notes": ""
+  "versionCode": 2,
+  "versionName": "1.0.2",
+  "apk": "https://raw.githubusercontent.com/Nex-Gen-Dev/Siddur-apk-updates/main/releases/Siddur-2.apk",
+  "webVersion": 1,
+  "webUrl": "https://raw.githubusercontent.com/Nex-Gen-Dev/Siddur-apk-updates/main/web/index-1.html",
+  "webSha256": "36c9d69d7b31cf6db028c2e62f30e01d744178b5315f9aa1f97ce04f2efe746c",
+  "notes": "Content updates now install instantly"
 }

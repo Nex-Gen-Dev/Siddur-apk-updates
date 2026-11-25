@@ -24,6 +24,9 @@ android {
                 storePassword System.getenv("SIDDUR_KS_PASS")
                 keyAlias System.getenv("SIDDUR_KEY_ALIAS") ?: "siddur"
                 keyPassword System.getenv("SIDDUR_KS_PASS")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
