@@ -1,0 +1,7 @@
+{
+  "appId": "com.siddur.app",
+  "appName": "סידור",
+  "webDir": "www",
+  "backgroundColor": "#0C0F1F",
+  "android": { "allowMixedContent": false }
+}
