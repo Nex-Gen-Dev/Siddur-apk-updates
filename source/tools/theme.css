@@ -177,3 +177,7 @@ html{touch-action:manipulation}
  font:600 14px var(--hefont,Arial),sans-serif;padding:9px 14px;max-width:70vw}
 .cp-loc select option{color:#111}
 .cp-loc button{appearance:none;border:0;border-radius:12px;padding:10px 14px;background:#e6c27a;color:#241c06;font:800 13px var(--hefont,Arial),sans-serif;cursor:pointer}
+
+.compass-card{grid-column:1/-1}
+.hero+.cards{margin-top:14px}
+.compass-card .card-title{font-size:17px!important}
