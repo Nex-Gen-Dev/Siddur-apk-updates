@@ -1,9 +1,9 @@
 {
-  "versionCode": 4,
-  "versionName": "1.0.4",
-  "apk": "https://raw.githubusercontent.com/Nex-Gen-Dev/Siddur-apk-updates/main/releases/Siddur-4.apk",
-  "webVersion": 3,
-  "webUrl": "https://raw.githubusercontent.com/Nex-Gen-Dev/Siddur-apk-updates/main/web/index-3.html",
-  "webSha256": "151e79d60141b18db13837b89ae1a5c785ac3dd0f82292cdface2e697403bfc0",
-  "notes": "Auto-scroll (double-tap), Jerusalem compass"
+  "versionCode": 5,
+  "versionName": "1.0.5",
+  "apk": "https://raw.githubusercontent.com/Nex-Gen-Dev/Siddur-apk-updates/main/releases/Siddur-5.apk",
+  "webVersion": 4,
+  "webUrl": "https://raw.githubusercontent.com/Nex-Gen-Dev/Siddur-apk-updates/main/web/index-4.html",
+  "webSha256": "25a482f34c41444d5c4c11e1fac80113c76ed705a81b8a6756d5a26522754f55",
+  "notes": "Scroll lock in menus, full-screen reading, English compass, smaller headings"
 }

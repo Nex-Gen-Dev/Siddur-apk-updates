@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
+import android.hardware.GeomagneticField;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
@@ -69,6 +70,17 @@ public class ApkUpdaterPlugin extends Plugin {
         } catch (Exception e) {
             call.reject(String.valueOf(e.getMessage()));
         }
+    }
+
+    /** Magnetic declination at a location, so the compass can point to true north. */
+    @PluginMethod
+    public void declination(PluginCall call) {
+        double lat = call.getDouble("lat", 0.0);
+        double lon = call.getDouble("lon", 0.0);
+        GeomagneticField g = new GeomagneticField((float) lat, (float) lon, 0f, System.currentTimeMillis());
+        JSObject o = new JSObject();
+        o.put("declination", g.getDeclination());
+        call.resolve(o);
     }
 
     @PluginMethod

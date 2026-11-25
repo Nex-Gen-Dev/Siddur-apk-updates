@@ -68,11 +68,54 @@
   }catch(e){}
  }
 
+ /* ---- scroll lock while an overlay (settings / compass) is open ---- */
+ var rootEl=document.documentElement;
+ function overlayOpen(){return $('settings-open').checked||CP.open}
+ function syncLock(){rootEl.classList[overlayOpen()?'add':'remove']('lock')}
+ $('settings-open').addEventListener('change',function(){syncLock();if(this.checked){asStop();exitFS()}});
+
+ /* ---- full-screen reading: bars hide while scrolling, reappear briefly on touch ---- */
+ var SBAR=null;try{if(native)SBAR=Capacitor.registerPlugin('SystemBars')}catch(e){}
+ var IM={fs:false,t:0,scrollT:0,lastUser:0,expect:-1};
+ function barsHide(on){
+  if(!SBAR)return;
+  try{(on?SBAR.hide({bar:'StatusBar'}):SBAR.show({bar:'StatusBar'})).catch(function(){})}catch(e){}
+ }
+ function enterFS(force){
+  if(!inReader()||overlayOpen()||(!force&&window.scrollY<80))return;
+  if(document.querySelector('.jump-menu[open]'))return;
+  IM.fs=true;rootEl.classList.add('immersive');barsHide(true);
+ }
+ function exitFS(){
+  IM.fs=false;clearTimeout(IM.t);clearTimeout(IM.scrollT);
+  rootEl.classList.remove('immersive');barsHide(false);
+ }
+ function reveal(){
+  rootEl.classList.remove('immersive');barsHide(false);
+  clearTimeout(IM.t);
+  if(IM.fs)IM.t=setTimeout(function(){if(IM.fs)enterFS(AS.on)},1000);
+ }
+ function userScrolled(){
+  IM.lastUser=Date.now();
+  if(IM.fs||IM.scrollT)return;
+  IM.scrollT=setTimeout(function(){
+   IM.scrollT=0;
+   if(Date.now()-IM.lastUser<900)enterFS();
+  },2000);
+ }
+ window.addEventListener('scroll',function(){
+  var y=window.scrollY;
+  if(y<80&&IM.fs&&!AS.on){exitFS();return}
+  if(Math.abs(y-IM.expect)<1.6)return;          /* our own auto-scroll */
+  if(inReader())userScrolled();
+ },{passive:true});
+ document.addEventListener('change',function(e){var t=e.target;if(t&&t.name==='nav')exitFS()});
+
  /* ---- auto-scroll (double-tap the text) ---- */
- var AS={speeds:{slow:18,medium:34,fast:62},names:{slow:'איטי',medium:'בינוני',fast:'מהיר'},order:['slow','medium','fast'],
-         speed:'medium',on:false,hold:false,raf:0,last:0,acc:0,lock:null,lastToggle:0};
+ var AS={speeds:{slow:18,medium:34,fast:62},names:{slow:'Slow',medium:'Medium',fast:'Fast'},order:['slow','medium','fast'],
+         speed:'medium',on:false,hold:false,raf:0,last:0,pos:0,ramp:0,lock:null,lastToggle:0,asT:0};
  try{var sv=localStorage.getItem('siddur.scrollSpeed');if(AS.speeds[sv])AS.speed=sv}catch(e){}
- var pill=$('as-pill'),asLabel=$('as-label'),asSpeedBtn=$('as-speed');
+ var pill=$('as-pill'),asSpeedBtn=$('as-speed');
  function inReader(){return !$('nav-home').checked}
  function paintSpeed(){
   var bs=document.querySelectorAll('.as-btn');
@@ -93,28 +136,37 @@
  function tick(t){
   if(!AS.on)return;
   var dt=Math.min(t-AS.last,64);AS.last=t;
-  if(!AS.hold){
-   AS.acc+=AS.speeds[AS.speed]*dt/1000;
-   var step=Math.floor(AS.acc);
-   if(step>0){AS.acc-=step;window.scrollBy(0,step);if(atBottom()){asStop();return}}
+  var y=window.scrollY;
+  if(AS.hold||Math.abs(y-IM.expect)>0.6){
+   /* the reader is moving it (finger or momentum): follow, then ease back in */
+   AS.pos=y;AS.ramp=0;IM.expect=y;
+  }else{
+   AS.ramp=Math.min(1,AS.ramp+dt/800);
+   var ease=AS.ramp*AS.ramp*(3-2*AS.ramp);
+   AS.pos+=AS.speeds[AS.speed]*ease*dt/1000;
+   window.scrollTo(0,AS.pos);
+   IM.expect=window.scrollY;
+   if(atBottom()){asStop();return}
   }
   AS.raf=requestAnimationFrame(tick);
  }
  function asStart(){
   if(AS.on||!inReader())return;
-  AS.on=true;AS.acc=0;AS.last=performance.now();
-  asLabel.textContent='גלילה אוטומטית';pill.classList.add('show');wake(true);
+  AS.on=true;AS.pos=window.scrollY;AS.ramp=0;IM.expect=window.scrollY;AS.last=performance.now();
+  pill.classList.add('show');wake(true);
+  clearTimeout(AS.asT);AS.asT=setTimeout(function(){if(AS.on){IM.fs=true;enterFS(true)}},2000);
   AS.raf=requestAnimationFrame(tick);
  }
  function asStop(){
   if(!AS.on)return;
-  AS.on=false;cancelAnimationFrame(AS.raf);pill.classList.remove('show');wake(false);
+  AS.on=false;cancelAnimationFrame(AS.raf);clearTimeout(AS.asT);pill.classList.remove('show');wake(false);
+  IM.fs=false;clearTimeout(IM.t);rootEl.classList.remove('immersive');barsHide(false);
  }
  function asToggle(){AS.lastToggle=Date.now();AS.on?asStop():asStart();try{getSelection().removeAllRanges()}catch(e){}}
  Array.prototype.forEach.call(document.querySelectorAll('.as-btn'),function(b){
   b.addEventListener('click',function(){setSpeed(b.getAttribute('data-speed'))});
  });
- asSpeedBtn.addEventListener('click',function(){setSpeed(AS.order[(AS.order.indexOf(AS.speed)+1)%3])});
+ asSpeedBtn.addEventListener('click',function(){setSpeed(AS.order[(AS.order.indexOf(AS.speed)+1)%3]);reveal()});
  $('as-stop').addEventListener('click',asStop);
  paintSpeed();
 
@@ -123,15 +175,16 @@
  document.addEventListener('touchstart',function(e){
   if(e.touches.length>1)return;
   sx=e.touches[0].clientX;sy=e.touches[0].clientY;moved=false;AS.hold=true;
+  if(inReader()&&!overlayOpen())reveal();
  },{passive:true});
  document.addEventListener('touchmove',function(e){
-  var t=e.touches[0];if(Math.abs(t.clientX-sx)>10||Math.abs(t.clientY-sy)>10)moved=true;
+  var t=e.touches[0];if(Math.abs(t.clientX-sx)>10||Math.abs(t.clientY-sy)>10){moved=true;IM.lastUser=Date.now();userScrolled()}
  },{passive:true});
  function release(){AS.hold=false;AS.last=performance.now()}
- document.addEventListener('touchcancel',function(){setTimeout(release,700)},{passive:true});
+ document.addEventListener('touchcancel',release,{passive:true});
  document.addEventListener('touchend',function(e){
-  if(moved){setTimeout(release,900);tapT=0;return}
   release();
+  if(moved){tapT=0;return}
   if(!okTarget(e.target)){tapT=0;return}
   var now=Date.now(),t=e.changedTouches[0];
   if(now-tapT<320&&Math.abs(t.clientX-tapX)<36&&Math.abs(t.clientY-tapY)<36){tapT=0;asToggle()}
@@ -143,7 +196,6 @@
  });
  document.addEventListener('change',function(e){var t=e.target;if(t&&t.name==='nav')asStop()});
  document.addEventListener('visibilitychange',function(){if(document.hidden)asStop()});
- $('settings-open').addEventListener('change',function(){if(this.checked)asStop()});
 
  /* one-time hint when first opening a prayer */
  var hint=$('as-hint');
@@ -155,13 +207,14 @@
   setTimeout(function(){hint.classList.add('show');setTimeout(function(){hint.classList.remove('show')},4200)},700);
  });
 
- /* ---- compass: direction of Jerusalem ---- */
+ /* ---- compass: direction of ירושלים ---- */
  var JER={lat:31.7767,lon:35.2345};
- var CITIES=[['ניו יורק',40.71,-74.01],['ברוקלין',40.65,-73.95],['לוס אנג׳לס',34.05,-118.24],['מיאמי',25.76,-80.19],['שיקגו',41.88,-87.63],
-  ['טורונטו',43.65,-79.38],['מונטריאול',45.50,-73.57],['לונדון',51.51,-0.13],['מנצ׳סטר',53.48,-2.24],['פריז',48.86,2.35],
-  ['אנטוורפן',51.22,4.40],['ציריך',47.37,8.54],['מוסקבה',55.76,37.62],['בואנוס איירס',-34.60,-58.38],['יוהנסבורג',-26.20,28.05],['סידני',-33.87,151.21]];
+ var J='<bdi>ירושלים</bdi>';
+ var CITIES=[['New York',40.71,-74.01],['Brooklyn',40.65,-73.95],['Los Angeles',34.05,-118.24],['Miami',25.76,-80.19],['Chicago',41.88,-87.63],
+  ['Toronto',43.65,-79.38],['Montreal',45.50,-73.57],['London',51.51,-0.13],['Manchester',53.48,-2.24],['Paris',48.86,2.35],
+  ['Antwerp',51.22,4.40],['Zurich',47.37,8.54],['Moscow',55.76,37.62],['Buenos Aires',-34.60,-58.38],['Johannesburg',-26.20,28.05],['Sydney',-33.87,151.21]];
  var cp=$('compass'),dial=$('cp-dial'),jerM=$('cp-jer'),cpMsg=$('cp-msg'),cpSub=$('cp-sub'),cpDeg=$('cp-deg'),citySel=$('cp-city');
- var CP={open:false,loc:null,bearing:null,dist:null,head:null,smooth:null,raf:0,got:0,watch:0};
+ var CP={open:false,loc:null,bearing:null,dist:null,head:null,smooth:null,raf:0,got:0,decl:0};
  var D2R=Math.PI/180;
  function bearingTo(a,b,c,d){
   var p1=a*D2R,p2=c*D2R,dl=(d-b)*D2R;
@@ -180,8 +233,10 @@
   if(save){try{localStorage.setItem('siddur.loc',JSON.stringify({lat:lat,lon:lon}))}catch(e){}}
   jerM.style.display=CP.bearing==null?'none':'block';
   if(CP.bearing!=null)jerM.style.transform='rotate('+CP.bearing+'deg)';
+  /* magnetic -> true north correction (native Android world magnetic model) */
+  if(UP&&UP.declination){UP.declination({lat:lat,lon:lon}).then(function(r){CP.decl=(r&&r.declination)||0}).catch(function(){})}
  }
- function fmtKm(k){return k>=100?Math.round(k).toLocaleString('he-IL'):k.toFixed(1)}
+ function fmtKm(k){return k>=100?Math.round(k).toLocaleString('en-US'):k.toFixed(1)}
  function heading(a,b,g){
   var x=b*D2R,y=g*D2R,z=a*D2R,h;
   if(Math.abs(b)<50){
@@ -198,9 +253,10 @@
  }
  function onOrient(e){
   if(e.alpha==null)return;
-  if(e.type==='deviceorientation'&&e.absolute===false&&CP.got===2)return; /* prefer absolute */
+  if(e.type==='deviceorientation'&&e.absolute===false&&CP.got===2)return; /* prefer the absolute sensor */
   var h=(typeof e.webkitCompassHeading==='number')?e.webkitCompassHeading:heading(e.alpha,e.beta||0,e.gamma||0);
-  CP.head=h;CP.got=e.type==='deviceorientationabsolute'?2:1;
+  var first=CP.head==null;CP.head=(h+CP.decl+360)%360;CP.got=e.type==='deviceorientationabsolute'?2:1;
+  if(first){cpMsg.textContent='';locInfo()}
  }
  function render(){
   if(!CP.open)return;
@@ -212,42 +268,54 @@
    if(CP.bearing!=null){
     var diff=((CP.bearing-CP.smooth+540)%360)-180,ad=Math.abs(diff);
     var ok=ad<=5;cp.classList[ok?'add':'remove']('ok');
-    if(ok){cpMsg.textContent='✓ פונים לירושלים'}
-    else cpMsg.textContent=(diff>0?'סובבו ימינה ':'סובבו שמאלה ')+Math.round(ad)+'°';
-   }
+    cpMsg.innerHTML=ok?'✓ Facing '+J:'Turn '+(diff>0?'right ':'left ')+Math.round(ad)+'°';
+   }else if(CP.loc==null){cpMsg.textContent='Finding your location…'}
   }
   CP.raf=requestAnimationFrame(render);
  }
  function locInfo(){
-  if(!CP.loc){cpSub.textContent='מאתר מיקום…';return}
-  if(CP.bearing==null){cpMsg.textContent='אתם בירושלים';cpSub.textContent='';return}
-  cpSub.textContent='ירושלים: '+Math.round(CP.bearing)+'° · '+fmtKm(CP.dist)+' ק״מ';
+  if(!CP.loc){cpSub.textContent='Finding your location…';return}
+  if(CP.bearing==null){cpMsg.innerHTML='You’re in '+J;cpSub.textContent='';return}
+  cpSub.innerHTML=J+' is '+Math.round(CP.bearing)+'° · '+fmtKm(CP.dist)+' km away';
  }
  function findMe(){
-  cpSub.textContent='מאתר מיקום…';
-  if(!navigator.geolocation){cpSub.textContent='לא ניתן לאתר מיקום, בחרו עיר למטה';return}
+  cpSub.textContent='Finding your location…';
+  if(!navigator.geolocation){cpSub.textContent='Location isn’t available. Choose a city below.';return}
   navigator.geolocation.getCurrentPosition(function(p){
    citySel.value='';setLoc(p.coords.latitude,p.coords.longitude,true);locInfo();
-  },function(){
-   if(!CP.loc)cpSub.textContent='אין גישה למיקום. בחרו עיר למטה';
+  },function(err){
+   if(!CP.loc)cpSub.textContent=(err&&err.code===1?'Location access was denied. ':'Couldn’t get your location. ')+'Choose a city below.';
   },{enableHighAccuracy:false,timeout:12000,maximumAge:3600000});
  }
+ function listen(){
+  window.addEventListener('deviceorientationabsolute',onOrient,true);
+  window.addEventListener('deviceorientation',onOrient,true);
+ }
  function openCompass(){
-  asStop();CP.open=true;CP.head=null;CP.smooth=null;CP.got=0;
+  asStop();exitFS();CP.open=true;CP.head=null;CP.smooth=null;CP.got=0;syncLock();
   cp.classList.add('open');cp.classList.remove('ok');
-  cpMsg.textContent='מכיילים…';cpDeg.textContent='';
+  cpMsg.textContent='Calibrating…';cpDeg.textContent='';
+  if(!('ondeviceorientation' in window)&&!('ondeviceorientationabsolute' in window)){
+   cpMsg.textContent='No compass found';cpSub.textContent='This device doesn’t have a compass sensor.';
+  }
   var saved=null;try{saved=JSON.parse(localStorage.getItem('siddur.loc')||'null')}catch(e){}
   if(saved&&saved.lat!=null){setLoc(saved.lat,saved.lon,false);locInfo()}
   findMe();
-  window.addEventListener('deviceorientationabsolute',onOrient,true);
-  window.addEventListener('deviceorientation',onOrient,true);
+  /* some devices (iOS) ask permission for motion sensors; Android doesn't need it */
+  var DO=window.DeviceOrientationEvent;
+  listen();
+  if(DO&&typeof DO.requestPermission==='function'){
+   DO.requestPermission().then(function(r){
+    if(r!=='granted'&&CP.open&&CP.head==null){cpMsg.textContent='Compass access denied';cpSub.textContent='Allow motion access in your settings.'}
+   }).catch(function(){});
+  }
   CP.raf=requestAnimationFrame(render);
   setTimeout(function(){
-   if(CP.open&&CP.head==null){cpMsg.textContent='אין חיישן כיוון';cpSub.textContent='המכשיר לא מאפשר גישה לחיישן המצפן'}
+   if(CP.open&&CP.head==null){cpMsg.textContent='No compass found';cpSub.textContent='This device isn’t providing compass data.'}
   },2500);
  }
  function closeCompass(){
-  CP.open=false;cancelAnimationFrame(CP.raf);cp.classList.remove('open');
+  CP.open=false;cancelAnimationFrame(CP.raf);cp.classList.remove('open');syncLock();
   window.removeEventListener('deviceorientationabsolute',onOrient,true);
   window.removeEventListener('deviceorientation',onOrient,true);
  }
